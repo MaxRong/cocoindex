@@ -16,7 +16,6 @@ import pickle
 import struct
 import sys
 import typing
-import weakref
 
 from . import core
 from .serde import (
@@ -37,9 +36,7 @@ class _MemoTypeRegistry(typing.NamedTuple):
     stable_type_id: str | None = None
 
 
-_memo_type_registry: dict[
-    int, tuple[weakref.ReferenceType[type], _MemoTypeRegistry]
-] = {}
+_memo_type_registry: dict[type, _MemoTypeRegistry] = {}
 
 
 class StateFnEntry(typing.NamedTuple):
@@ -165,47 +162,19 @@ def prev_type_id(module: str, qualname: str) -> str:
     return _PreviousTypeId(module, qualname)
 
 
-def _remove_memo_type_registry(
-    type_id: int, dead_ref: weakref.ReferenceType[type]
-) -> None:
-    """Remove ``type_id`` only if ``dead_ref`` is still the stored weakref."""
-    entry = _memo_type_registry.get(type_id)
-    if entry is not None and entry[0] is dead_ref:
-        _memo_type_registry.pop(type_id, None)
-
-
 def _register_memo_type_registry(typ: type, registry: _MemoTypeRegistry) -> None:
     """Register memo configuration for one exact Python type."""
-    type_id = id(typ)
-
-    def _remove_stale_registry(dead_ref: weakref.ReferenceType[type]) -> None:
-        _remove_memo_type_registry(type_id, dead_ref)
-
-    _memo_type_registry[type_id] = (
-        weakref.ref(typ, _remove_stale_registry),
-        registry,
-    )
+    _memo_type_registry[typ] = registry
 
 
 def _unregister_memo_type_registry(typ: type) -> None:
     """Best-effort removal of an exact-type memo registration."""
-    type_id = id(typ)
-    entry = _memo_type_registry.get(type_id)
-    if entry is not None and entry[0]() is typ:
-        _memo_type_registry.pop(type_id, None)
+    _memo_type_registry.pop(typ, None)
 
 
 def _registered_memo_type_registry(typ: type) -> _MemoTypeRegistry | None:
-    """Return the exact type's registration from the identity-keyed table."""
-    type_id = id(typ)
-    entry = _memo_type_registry.get(type_id)
-    if entry is None:
-        return None
-    ref, registry = entry
-    if ref() is typ:
-        return registry
-    _memo_type_registry.pop(type_id, None)
-    return None
+    """Return the exact type's registration from the type-keyed table."""
+    return _memo_type_registry.get(typ)
 
 
 _MEMO_KEY_ATTR = "__coco_memo_key__"
